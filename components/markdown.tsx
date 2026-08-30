@@ -4,13 +4,64 @@ import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Citation } from "@/lib/types";
 
+interface UnsupportedSentence {
+  sentence: string;
+  reason: string;
+}
+
 /**
- * Renders a text string, converting inline [n] citation markers into
- * clickable badges. The `citations` array maps citation number -> Citation.
+ * Renders a text string, converting inline [n] citation markers into clickable
+ * badges and underlining sentences flagged by the hallucination check.
  */
-function renderCitations(
+function renderTextSegments(
+  text: string,
+  onCitationClick: (c: Citation) => void,
+  citations: Citation[],
+  unsupported: UnsupportedSentence[]
+) {
+  // Split by flagged unsupported sentences first.
+  const flagged = unsupported.find((u) => text.includes(u.sentence));
+  if (flagged) {
+    const idx = text.indexOf(flagged.sentence);
+    const before = text.slice(0, idx);
+    const after = text.slice(idx + flagged.sentence.length);
+    return (
+      <>
+        {before && (
+          <span>{renderInline(before, onCitationClick, citations)}</span>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help rounded-sm bg-red-100/70 px-0.5 underline decoration-wavy decoration-red-400 decoration-1 underline-offset-4 dark:bg-red-950/40">
+              {renderInline(flagged.sentence, onCitationClick, citations)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs font-normal">
+            <span className="font-semibold">Possible unsupported claim</span>
+            <br />
+            {flagged.reason}
+          </TooltipContent>
+        </Tooltip>
+        {after && (
+          <span>
+            {renderTextSegments(after, onCitationClick, citations, unsupported.filter((u) => u.sentence !== flagged.sentence))}
+          </span>
+        )}
+      </>
+    );
+  }
+  return renderInline(text, onCitationClick, citations);
+}
+
+function renderInline(
   text: string,
   onCitationClick: (c: Citation) => void,
   citations: Citation[]
@@ -34,65 +85,72 @@ function renderCitations(
           </button>
         );
       }
-      return <span key={i}>{part}</span>;
     }
     return <span key={i}>{part}</span>;
   });
 }
 
-const TextRenderer = ({
-  children,
+export function UnsupportedSentenceWrap({
+  unsupportedSentences,
   onCitationClick,
   citations,
+  children,
 }: {
-  children: React.ReactNode;
+  unsupportedSentences: UnsupportedSentence[];
   onCitationClick: (c: Citation) => void;
   citations: Citation[];
-}) => {
-  if (typeof children === "string") {
-    return <>{renderCitations(children, onCitationClick, citations)}</>;
-  }
-  return <>{children}</>;
-};
+  children: React.ReactNode;
+}) {
+  if (typeof children !== "string") return <>{children}</>;
+  return (
+    <>{renderTextSegments(children, onCitationClick, citations, unsupportedSentences)}</>
+  );
+}
 
 export function Markdown({
   content,
   citations,
   onCitationClick,
+  unsupportedSentences = [],
   className,
 }: {
   content: string;
   citations: Citation[];
   onCitationClick: (c: Citation) => void;
+  unsupportedSentences?: UnsupportedSentence[];
   className?: string;
 }) {
   const components: Components = {
     p: ({ children }) => (
       <p className="leading-relaxed [&:not(:first-child)]:mt-3">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap
+          unsupportedSentences={unsupportedSentences}
+          onCitationClick={onCitationClick}
+          citations={citations}
+        >
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </p>
     ),
     h1: ({ children }) => (
       <h1 className="mt-4 text-xl font-bold [&:first-child]:mt-0">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </h1>
     ),
     h2: ({ children }) => (
       <h2 className="mt-4 text-lg font-bold [&:first-child]:mt-0">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </h2>
     ),
     h3: ({ children }) => (
       <h3 className="mt-3 text-base font-semibold [&:first-child]:mt-0">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </h3>
     ),
     ul: ({ children }) => (
@@ -103,23 +161,23 @@ export function Markdown({
     ),
     li: ({ children }) => (
       <li className="leading-relaxed">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </li>
     ),
     strong: ({ children }) => (
       <strong className="font-semibold">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </strong>
     ),
     em: ({ children }) => (
       <em>
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </em>
     ),
     a: ({ href, children }) => (
@@ -152,20 +210,22 @@ export function Markdown({
     ),
     td: ({ children }) => (
       <td className="border px-2 py-1">
-        <TextRenderer onCitationClick={onCitationClick} citations={citations}>
+        <UnsupportedSentenceWrap unsupportedSentences={unsupportedSentences} onCitationClick={onCitationClick} citations={citations}>
           {children}
-        </TextRenderer>
+        </UnsupportedSentenceWrap>
       </td>
     ),
     hr: () => <hr className="my-3 border-border" />,
   };
 
   return (
-    <div className={className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
-      </ReactMarkdown>
-    </div>
+    <TooltipProvider delayDuration={200}>
+      <div className={className}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    </TooltipProvider>
   );
 }
 

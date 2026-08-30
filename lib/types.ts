@@ -65,4 +65,5 @@ export interface AnswerResult {
   citations: Citation[];
   groundingScore: number;
   agentSteps: AgentStep[];
+  unsupportedSentences?: Array<{ sentence: string; reason: string }>;
 }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { hybridSearch } from "@/lib/retrieve";
-import { generateAnswer } from "@/lib/agent/answer";
+import { runAgenticAnswer } from "@/lib/agent/multihop";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -51,15 +50,13 @@ export async function POST(request: NextRequest) {
       .slice(-8)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-    // Retrieve then generate.
-    const results = await hybridSearch(message, 5);
-    const answer = await generateAnswer({
+    // Retrieve then generate via the full agentic pipeline.
+    const answer = await runAgenticAnswer({
       query: message,
-      results,
       conversationHistory: history.slice(0, -1),
     });
 
-    // Persist the assistant message with citations.
+    // Persist the assistant message with citations + grounding score.
     const { data: savedMsg, error: assistantMsgError } = await supabase
       .from("messages")
       .insert({
@@ -67,7 +64,7 @@ export async function POST(request: NextRequest) {
         role: "assistant",
         content: answer.content,
         citations: answer.citations,
-        grounding_score: null,
+        grounding_score: answer.groundingScore,
       })
       .select()
       .single();
@@ -79,6 +76,7 @@ export async function POST(request: NextRequest) {
       conversationId: convoId,
       message: savedMsg,
       agentSteps: answer.agentSteps,
+      unsupportedSentences: answer.unsupportedSentences ?? null,
       usage: answer.usage,
     });
   } catch (error) {

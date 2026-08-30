@@ -8,7 +8,15 @@ import { Markdown, SourceBadges } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { groundingLevel } from "@/lib/agent/grounding";
 import type { AgentStep, Citation, DocumentRecord } from "@/lib/types";
 
 interface ChatMessage {
@@ -18,6 +26,8 @@ interface ChatMessage {
   citations: Citation[];
   created_at: string;
   agentSteps?: AgentStep[];
+  groundingScore?: number | null;
+  unsupportedSentences?: Array<{ sentence: string; reason: string }>;
 }
 
 const SUGGESTIONS = [
@@ -111,6 +121,8 @@ export function ChatPanel({
             citations: data.message.citations ?? [],
             created_at: data.message.created_at,
             agentSteps: data.agentSteps ?? [],
+            groundingScore: data.message.grounding_score ?? null,
+            unsupportedSentences: data.unsupportedSentences ?? [],
           };
           setMessages((prev) => [...prev, assistantMessage]);
           onConversationChange(data.conversationId);
@@ -251,6 +263,7 @@ export function MessageBubble({
   onCitationClick: (c: Citation) => void;
 }) {
   const isUser = message.role === "user";
+  const level = groundingLevel(message.groundingScore);
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -275,10 +288,22 @@ export function MessageBubble({
           <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
         ) : (
           <>
+            {message.groundingScore != null && (
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <GroundingBadge level={level} score={message.groundingScore} />
+                {message.unsupportedSentences && message.unsupportedSentences.length > 0 && (
+                  <span className="text-xs text-destructive">
+                    {message.unsupportedSentences.length} flagged sentence
+                    {message.unsupportedSentences.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+            )}
             <Markdown
               content={message.content}
               citations={message.citations}
               onCitationClick={onCitationClick}
+              unsupportedSentences={message.unsupportedSentences ?? []}
               className="text-sm"
             />
             {message.citations.length > 0 && (
@@ -288,14 +313,7 @@ export function MessageBubble({
               </>
             )}
             {message.agentSteps && message.agentSteps.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                {message.agentSteps.map((step, i) => (
-                  <span key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {i > 0 && <span className="text-muted-foreground/40">→</span>}
-                    <span className="rounded-full bg-muted px-2 py-0.5">{step.label}</span>
-                  </span>
-                ))}
-              </div>
+              <AgentStepsAccordion steps={message.agentSteps} />
             )}
           </>
         )}
@@ -306,6 +324,71 @@ export function MessageBubble({
         </div>
       )}
     </motion.div>
+  );
+}
+
+function GroundingBadge({
+  level,
+  score,
+}: {
+  level: "high" | "medium" | "low";
+  score: number;
+}) {
+  const config = {
+    high: { label: "High confidence", variant: "success" as const, dot: "bg-emerald-500" },
+    medium: { label: "Medium confidence", variant: "warning" as const, dot: "bg-amber-500" },
+    low: { label: "Low confidence", variant: "destructive" as const, dot: "bg-red-500" },
+  }[level];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={cn("h-2 w-2 rounded-full", config.dot)} />
+      <Badge variant={config.variant} className="gap-1">
+        {Math.round(score * 100)}% · {config.label}
+      </Badge>
+    </div>
+  );
+}
+
+function AgentStepsAccordion({ steps }: { steps: AgentStep[] }) {
+  if (steps.length === 0) return null;
+  const summary = steps.map((s) => s.label.split(" (")[0]).join(" → ");
+  return (
+    <Accordion type="single" collapsible className="mt-3 rounded-lg border bg-muted/40 px-3">
+      <AccordionItem value="steps" className="border-b-0">
+        <AccordionTrigger className="py-2.5 text-xs font-medium">
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            Agent steps
+          </span>
+          <span className="ml-2 truncate text-[11px] font-normal text-muted-foreground">
+            {summary}
+          </span>
+        </AccordionTrigger>
+        <AccordionContent>
+          <ol className="space-y-2">
+            {steps.map((step, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="font-medium">{step.label}</p>
+                  {step.detail && (
+                    <p className="text-muted-foreground">{step.detail}</p>
+                  )}
+                  {step.durationMs != null && (
+                    <p className="text-[10px] text-muted-foreground">
+                      ~{step.durationMs}ms
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 

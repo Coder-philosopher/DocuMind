@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai";
 
 import { env } from "@/lib/config";
+import { withRetry } from "@/lib/utils/retry";
 
 export const GENERATION_MODEL = "gemini-2.0-flash";
 export const EMBEDDING_MODEL = "text-embedding-004";
@@ -38,13 +39,17 @@ export async function generateText(params: {
     { text: params.prompt },
   ];
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts }],
-    generationConfig: {
-      temperature: params.temperature ?? 0.4,
-      responseMimeType: params.responseMimeType ?? "text/plain",
-    },
-  });
+  const result = await withRetry(
+    () =>
+      model.generateContent({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          temperature: params.temperature ?? 0.4,
+          responseMimeType: params.responseMimeType ?? "text/plain",
+        },
+      }),
+    { label: "gemini.generateText" }
+  );
 
   const usage = result.response.usageMetadata;
   return {
@@ -58,7 +63,9 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   const model = getGeminiModel(EMBEDDING_MODEL);
   const embeddings: number[][] = [];
   for (const text of texts) {
-    const result = await model.embedContent(text);
+    const result = await withRetry(() => model.embedContent(text), {
+      label: "gemini.embedContent",
+    });
     embeddings.push(result.embedding.values);
   }
   return embeddings;
