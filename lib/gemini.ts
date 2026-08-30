@@ -3,8 +3,8 @@ import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai"
 import { env } from "@/lib/config";
 import { withRetry } from "@/lib/utils/retry";
 
-export const GENERATION_MODEL = "gemini-2.0-flash";
-export const EMBEDDING_MODEL = "text-embedding-004";
+export const GENERATION_MODEL = "gemini-3.5-flash-lite";
+export const EMBEDDING_MODEL = "gemini-embedding-001";
 export const EMBEDDING_DIMENSIONS = 768;
 
 let _client: GoogleGenerativeAI | null = null;
@@ -59,14 +59,49 @@ export async function generateText(params: {
   };
 }
 
+/**
+ * Embed texts via the REST API directly. The JS SDK's EmbedContentRequest type
+ * does not expose `outputDimensionality`, so calling it raw lets us pin the
+ * embedding to EMBEDDING_DIMENSIONS (768) to match the pgvector schema.
+ */
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const model = getGeminiModel(EMBEDDING_MODEL);
+  if (!env.geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is not set");
+  }
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent`;
   const embeddings: number[][] = [];
   for (const text of texts) {
-    const result = await withRetry(() => model.embedContent(text), {
-      label: "gemini.embedContent",
-    });
-    embeddings.push(result.embedding.values);
+    const { values } = await withRetry(
+      async () => {
+        const res = await fetch(`${endpoint}?key=${encodeURIComponent(env.geminiApiKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: `models/${EMBEDDING_MODEL}`,
+            content: { parts: [{ text }] },
+            outputDimensionality: EMBEDDING_DIMENSIONS,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          const err = new Error(
+            `Gemini embed failed (${res.status}): ${body.slice(0, 300)}`
+          ) as Error & { status?: number };
+          err.status = res.status;
+          throw err;
+        }
+        const data = (await res.json()) as { embedding?: { values?: number[] } };
+        const values = data.embedding?.values ?? [];
+        if (values.length !== EMBEDDING_DIMENSIONS) {
+          throw new Error(
+            `Embedding returned ${values.length} dims, expected ${EMBEDDING_DIMENSIONS}`
+          );
+        }
+        return { values };
+      },
+      { label: "gemini.embedContent" }
+    );
+    embeddings.push(values);
   }
   return embeddings;
 }

@@ -16,7 +16,7 @@ create table if not exists chunks (
   id uuid primary key default gen_random_uuid(),
   document_id uuid references documents(id) on delete cascade,
   content text not null,
-  embedding vector(768), -- Gemini text-embedding-004 is 768 dimensions
+  embedding vector(768), -- Gemini gemini-embedding-001 (outputDimensionality 768)
   page_number integer,
   chunk_index integer,
   token_count integer

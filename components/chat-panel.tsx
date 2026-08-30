@@ -60,7 +60,6 @@ export function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  void activeChatId;
   void onNewChat;
   const bottomRef = useRef<HTMLDivElement>(null);
   const documentsRef = useRef(documents);
@@ -101,7 +100,7 @@ export function ChatPanel({
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text }),
+          body: JSON.stringify({ message: text, conversationId: activeChatId }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -142,7 +141,7 @@ export function ChatPanel({
         setLoading(false);
       }
     },
-    [input, loading, setMessages, onConversationChange, setLoading]
+    [input, loading, setMessages, onConversationChange, setLoading, activeChatId]
   );
 
   const readyCount = documents.filter((d) => d.status === "ready").length;

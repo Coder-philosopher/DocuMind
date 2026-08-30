@@ -7,7 +7,7 @@ Enterprise Agentic RAG research assistant. Ask questions over your uploaded PDFs
 ```
                            ┌────────────────────────────────────────────┐
  User ── upload ─────────► │ Ingestion: parse → chunk (~600 tok / 15%   │
-   │                        │ overlap) → embed (text-embedding-004, 768d)│
+   │                        │ overlap) → embed (gemini-embedding-001, 768d)│
    │                        │ → Supabase pgvector + full-text            │
    │                        └────────────────────────────────────────────┘
    │

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -29,6 +30,26 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+
+# Compatibility shim: recent langchain-community builds no longer ship the
+# VertexAI backends that ragas imports at module load. This eval uses Gemini as
+# the judge (never Vertex AI), so provide inert stand-ins ahead of the ragas import.
+import types
+
+
+def _install_vertexai_shim() -> None:
+    try:
+        import langchain_community.llms as _llms  # noqa: F401
+    except Exception:
+        return
+    if not hasattr(_llms, "VertexAI"):
+        _llms.VertexAI = type("VertexAI", (), {})
+    _mod = types.ModuleType("langchain_community.chat_models.vertexai")
+    _mod.ChatVertexAI = type("ChatVertexAI", (), {})
+    sys.modules["langchain_community.chat_models.vertexai"] = _mod
+
+
+_install_vertexai_shim()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEST_SET = BASE_DIR / "eval" / "test_set.json"
@@ -138,12 +159,16 @@ def run_ragas(dataset: dict) -> dict:
     from datasets import Dataset
     from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
     from ragas import evaluate
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import answer_relevancy, context_precision, faithfulness
 
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", api_key=GEMINI_API_KEY)
+    llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", api_key=GEMINI_API_KEY)
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="text-embedding-004", google_api_key=GEMINI_API_KEY
+        model="models/gemini-embedding-001", google_api_key=GEMINI_API_KEY
     )
+    llm = LangchainLLMWrapper(llm)
+    embeddings = LangchainEmbeddingsWrapper(embeddings)
 
     faithfulness.llm = llm
     context_precision.llm = llm
@@ -155,10 +180,21 @@ def run_ragas(dataset: dict) -> dict:
         ds,
         metrics=[faithfulness, context_precision, answer_relevancy],
     )
+
+    def avg(key: str):
+        vals = []
+        for r in result.scores:
+            v = r.get(key)
+            if isinstance(v, (int, float)) and not math.isnan(v):
+                vals.append(v)
+        if not vals:
+            return None
+        return round(sum(vals) / len(vals), 4)
+
     return {
-        "faithfulness": result.get("faithfulness"),
-        "context_precision": result.get("context_precision"),
-        "answer_relevancy": result.get("answer_relevancy"),
+        "faithfulness": avg("faithfulness"),
+        "context_precision": avg("context_precision"),
+        "answer_relevancy": avg("answer_relevancy"),
     }
 
 
@@ -180,6 +216,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DocuMind offline Ragas evaluation")
     parser.add_argument("--url", default="http://localhost:3000", help="DocuMind base URL")
     parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Only evaluate the first N questions (0 = all) for a quicker pass",
+    )
+    parser.add_argument(
         "--no-upload",
         action="store_true",
         help="Skip uploading sample docs (assume already ingested)",
@@ -192,6 +234,8 @@ def main() -> None:
         sys.exit(f"test set not found: {TEST_SET}")
     with open(TEST_SET, "r", encoding="utf-8") as fh:
         test_set = json.load(fh)
+    if args.limit:
+        test_set["dataset"] = test_set["dataset"][: args.limit]
     print(f"Loaded test set: {len(test_set['dataset'])} Q&A pairs")
 
     if not args.no_upload:

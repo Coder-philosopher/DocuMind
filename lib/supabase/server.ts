@@ -12,6 +12,12 @@ export const createServerSupabase = () => {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      // Next.js patches global fetch with a Data Cache; without this, GET
+      // handlers can serve build-time snapshots of Supabase responses.
+      fetch: (input, init) =>
+        fetch(input, { ...(init ?? {}), cache: "no-store" }),
+    },
   });
 };
 

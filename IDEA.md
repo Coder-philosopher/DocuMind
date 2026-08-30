@@ -8,8 +8,8 @@ DocuMind is a web application where a user uploads enterprise-style documents (P
 - **UI components**: `shadcn/ui` (Radix-based, open-source, copy-in — not a paid library). Also use `lucide-react` for icons and `framer-motion` (free, MIT) for micro-interactions/animations. Use `recharts` for the eval dashboard charts.
 - **Backend**: Next.js Route Handlers (Node.js runtime) — no separate backend service
 - **Database + vector store**: Supabase free tier — Postgres with the `pgvector` extension
-- **LLM (generation, query rewriting, grounding checks)**: Google Gemini API, `gemini-2.0-flash` (free tier)
-- **Embeddings**: Gemini `text-embedding-004` (free tier)
+- **LLM (generation, query rewriting, grounding checks)**: Google Gemini API, `gemini-3.5-flash-lite` (free tier)
+- **Embeddings**: Gemini `gemini-embedding-001` (768 dims, free tier)
 - **Reranker**: Cohere Rerank free tier (`rerank-english-v3.0`), with graceful skip-if-quota-exceeded fallback to raw hybrid-search order
 - **Observability**: Langfuse free cloud tier — trace every LLM call with tokens, latency, cost
 - **Eval**: Ragas (Python) run as an offline script against a fixed Q&A test set, not part of the live request path

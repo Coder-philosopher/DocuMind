@@ -18,7 +18,7 @@ const PIPELINE_STEPS = [
   {
     icon: <Database className="h-4 w-4" />,
     title: "Ingestion",
-    body: "PDF / DOCX / TXT / MD are parsed, recursively chunked at ~600 tokens with ~15% overlap, embedded with Gemini text-embedding-004 (768d) and stored in Supabase pgvector with a full-text index.",
+    body: "PDF / DOCX / TXT / MD are parsed, recursively chunked at ~600 tokens with ~15% overlap, embedded with Gemini gemini-embedding-001 (768d) and stored in Supabase pgvector with a full-text index.",
   },
   {
     icon: <Search className="h-4 w-4" />,
@@ -45,8 +45,8 @@ const PIPELINE_STEPS = [
 const STACK = [
   "Next.js 14",
   "Supabase + pgvector",
-  "Gemini 2.0 Flash",
-  "text-embedding-004",
+  "Gemini 3.5 Flash Lite",
+  "gemini-embedding-001",
   "Cohere Rerank",
   "Langfuse",
   "shadcn/ui",
