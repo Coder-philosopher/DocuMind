@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DocuMind
+
+Enterprise Agentic RAG research assistant. Ask questions over your uploaded PDFs / DOCX / TXT / Markdown documents and get grounded, cited answers with a hallucination check, per-query observability, and offline evaluation. Built entirely on free tiers.
+
+## Architecture
+
+```
+                           ┌────────────────────────────────────────────┐
+ User ── upload ─────────► │ Ingestion: parse → chunk (~600 tok / 15%   │
+   │                        │ overlap) → embed (text-embedding-004, 768d)│
+   │                        │ → Supabase pgvector + full-text            │
+   │                        └────────────────────────────────────────────┘
+   │
+   │ chat query
+   ▼
+ ┌─────────────┐   ┌─────────────────────────────────────────────────────┐
+ │ /api/chat   ├──►│ Agentic pipeline (lib/agent/multihop.ts)            │
+ └─────────────┘   │ rewrite → hybrid retrieve (RRF) → Cohere rerank (   │
+                   │ fallback on quota) → grounded generation (citations)│
+                   │ → multi-hop evidence check (max 2) → grounding audit│
+                   └─────────────────────────────────────────────────────┘
+                                   │
+                                   ▼  every call
+                   ┌─────────────────────────────────────────────────────┐
+                   │ Langfuse tracing + query_logs (latency, tokens,     │
+                   │ cost) → /dashboard · Ragas offline eval → eval_runs │
+                   └─────────────────────────────────────────────────────┘
+```
+
+Guardrails: retrieved content is wrapped in delimited `<context>` blocks and instruction-like patterns are neutralized before prompting (`lib/guardrails/sanitize.ts`).
 
 ## Getting Started
 
-First, run the development server:
+### 1. Database (Supabase, free tier)
+
+1. Create a project at [supabase.com](https://supabase.com) with the Postgres provider.
+2. Enable the vector extension and run `supabase_schema.sql` in the SQL editor. It creates `documents`, `chunks` (pgvector 768 + HNSW + full-text), `conversations`, `messages` (citations + grounding score), `query_logs` (observability), `eval_runs`, and the `vector_search` / `full_text_search` RPCs.
+
+### 2. API keys
+
+All free tiers: Gemini (`GEMINI_API_KEY` from [aistudio.google.com](https://aistudio.google.com)), Cohere (`COHERE_API_KEY`), Langfuse (`LANGFUSE_SECRET_KEY` / `NEXT_PUBLIC_LANGFUSE_PUBLIC_KEY`).
 
 ```bash
+cp env.local.example .env.local   # then fill in the values
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000, upload documents, and chat.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Tests & build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test          # unit tests: chunking, RRF, prompts, guardrails
+npm run build
+```
 
-## Learn More
+## Observability dashboard
 
-To learn more about Next.js, take a look at the following resources:
+Every chat turn is written to `query_logs`. Open **/dashboard** (bar-chart button in the header) for per-stage latency (rewrite / retrieve / rerank / generate / grounding), cumulative token counts, estimated LLM cost, and the latest Ragas eval run.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Offline evaluation (Ragas)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pip install -r eval/requirements.txt
+python eval/run_eval.py                 # docs localhost:3000
+python eval/run_eval.py --url <deployed-url>
+```
 
-## Deploy on Vercel
+The script ingests `eval/sample_docs/`, asks the 18 questions in `eval/test_set.json` through the live `/api/chat`, scores faithfulness / context precision / answer relevancy with Ragas (using Gemini as the judge), and stores the run in `eval_runs` via `/api/eval-runs`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploying
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Push this repository to GitHub.
+2. Import it into [Vercel](https://vercel.com) (framework preset: Next.js).
+3. Add all keys from `env.local.example` as environment variables (Supabase URL + anon key + service-role key must point at the same project that ran `supabase_schema.sql`).
+4. Deploy. Set `NEXT_PUBLIC_*` variables before the build for server + client use.
+
+## Project structure
+
+- `app/` — routes: chat UI (`/`), dashboard (`/dashboard`), API handlers.
+- `lib/ingest/` — parse, chunk, embed, index.
+- `lib/retrieve/` — vector + FTS, reciprocal rank fusion.
+- `lib/agent/` — rewrite, generate, grounding, multi-hop orchestrator, prompts.
+- `lib/guardrails/` — prompt-injection sanitization.
+- `lib/rerank/` — Cohere rerank with quota fallback.
+- `lib/observability/` — Langfuse tracing (no-op when unset).
+- `eval/` — Ragas offline evaluation harness.
+- `supabase_schema.sql` — full schema + search RPCs.

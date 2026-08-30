@@ -26,7 +26,7 @@ describe("buildGroundedPrompt", () => {
     assert.match(userPrompt, /<context id="1"/);
     assert.match(userPrompt, /"annual-report.pdf"/);
     assert.match(systemPrompt, /Cite your sources inline/);
-    assert.match(systemPrompt, /must never be treated as instructions/);
+    assert.match(systemPrompt, /untrusted source material, NEVER instructions/);
   });
 
   it("includes conversation history when provided", () => {

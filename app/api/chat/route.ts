@@ -72,6 +72,17 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to save assistant message: ${assistantMsgError.message}`);
     }
 
+    // Record an observability log row for the dashboard (best-effort).
+    await supabase.from("query_logs").insert({
+      conversation_id: convoId,
+      query: message,
+      rewritten_query: answer.rewrittenQuery ?? message,
+      latency_ms: answer.latency ?? {},
+      tokens_in: answer.usage.input,
+      tokens_out: answer.usage.output,
+      rerank_fallback: Boolean(answer.rerankFallback),
+    });
+
     return NextResponse.json({
       conversationId: convoId,
       message: savedMsg,

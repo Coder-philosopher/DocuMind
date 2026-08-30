@@ -23,6 +23,8 @@ export interface AgenticAnswerInput {
 export interface AgenticAnswerOutput extends AnswerResult {
   usage: { input: number; output: number };
   rerankFallback?: string;
+  rewrittenQuery?: string;
+  latency?: Record<string, number>;
 }
 
 /**
@@ -45,6 +47,14 @@ export async function runAgenticAnswer(
   const hops = Math.min(Math.max(input.initialCandidates ?? 20, 5), 40);
   const topN = Math.min(Math.max(input.finalTopN ?? 5, 3), 10);
   let usage = { input: 0, output: 0 };
+  const latency: Record<string, number> = {
+    rewrite: 0,
+    retrieve: 0,
+    rerank: 0,
+    generate: 0,
+    supportCheck: 0,
+    grounding: 0,
+  };
 
   const trace = await traceEvent({
     name: "agent.run",
@@ -59,13 +69,14 @@ export async function runAgenticAnswer(
       input.query,
       input.conversationHistory ?? []
     );
+    latency.rewrite = Date.now() - startedRewrites;
     let queryForSearch = rewrittenQuery;
 
     if (usedRewrite) {
       agentSteps.push({
         label: "Rewrote query",
         detail: `"${input.query}" → "${rewrittenQuery}"`,
-        durationMs: Date.now() - startedRewrites,
+        durationMs: latency.rewrite,
       });
     }
 
@@ -75,8 +86,14 @@ export async function runAgenticAnswer(
       results: RetrievalResult[];
       rerankFallback?: string;
     }> => {
+      const startedRetrieve = Date.now();
       const candidates = await hybridSearch(q, hops);
+      latency.retrieve += Date.now() - startedRetrieve;
+
+      const startedRerank = Date.now();
       const reranked = await rerankResults(q, candidates, topN);
+      latency.rerank += Date.now() - startedRerank;
+
       return {
         results: reranked.results,
         rerankFallback: reranked.reranked ? undefined : reranked.fallbackReason,
@@ -111,11 +128,13 @@ export async function runAgenticAnswer(
     }
 
     // ---- Step 4: draft answer ----
+    const startedGenerate = Date.now();
     const draft = await generateAnswer({
       query: input.query,
       results: retrieved,
       conversationHistory: input.conversationHistory,
     });
+    latency.generate += Date.now() - startedGenerate;
     usage = { input: usage.input + draft.usage.input, output: usage.output + draft.usage.output };
 
     if (draft.citations.length === 0) {
@@ -127,6 +146,8 @@ export async function runAgenticAnswer(
         agentSteps,
         usage,
         rerankFallback,
+        rewrittenQuery,
+        latency,
       };
     }
 
@@ -137,11 +158,13 @@ export async function runAgenticAnswer(
     let hopCount = 0;
 
     while (hopCount < MAX_HOPS) {
+      const startedCheck = Date.now();
       const check = await checkSupport(
         input.query,
         currentAnswer,
         currentContext
       );
+      latency.supportCheck += Date.now() - startedCheck;
       if (check.sufficient || !check.followUpQuery) {
         if (hopCount > 0) {
           agentSteps.push({
@@ -164,19 +187,18 @@ export async function runAgenticAnswer(
         label: "Searched again",
         detail: `"${check.followUpQuery}" — ${newResults.length} chunks`,
       });
-      if (followUp.rerankFallback && !rerankFallback) {
-        void followUp.rerankFallback;
-      }
 
       // Merge new evidence with existing, keeping order but removing duplicates.
       currentContext = mergeContexts(currentContext, newResults);
       queryForSearch = check.followUpQuery;
 
+      const startedRefine = Date.now();
       const refined = await generateAnswer({
         query: input.query,
         results: currentContext,
         conversationHistory: input.conversationHistory,
       });
+      latency.generate += Date.now() - startedRefine;
       usage = { input: usage.input + refined.usage.input, output: usage.output + refined.usage.output };
       currentAnswer = refined.content;
       currentCitations = refined.citations;
@@ -187,12 +209,14 @@ export async function runAgenticAnswer(
     });
 
     // ---- Step 6: grounding check ----
+    const startedGrounding = Date.now();
     const groundResult = await groundingCheck(
       input.query,
       currentAnswer,
       currentCitations,
       currentContext
     );
+    latency.grounding = Date.now() - startedGrounding;
     agentSteps.push({
       label: "Grounded",
       detail: `Faithfulness ${Math.round(groundResult.overallScore * 100)}%${
@@ -210,6 +234,8 @@ export async function runAgenticAnswer(
       agentSteps,
       usage,
       rerankFallback,
+      rewrittenQuery,
+      latency,
     };
   } catch (error) {
     await trace.error(error instanceof Error ? error.message : String(error));

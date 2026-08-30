@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { PanelLeft, PanelRight } from "lucide-react";
+import Link from "next/link";
+import { PanelLeft, PanelRight, BarChart3 } from "lucide-react";
 
 import { DocumentSidebar } from "@/components/document-sidebar";
 import { ChatPanel } from "@/components/chat-panel";
 import { SourcesPanel } from "@/components/sources-panel";
+import { AboutModal } from "@/components/about-modal";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Citation, DocumentRecord } from "@/lib/types";
@@ -90,15 +92,22 @@ export default function Home() {
             </span>
             <span className="font-semibold tracking-tight">DocuMind</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="ml-auto"
-            onClick={() => setSourcesOpen((v) => !v)}
-            aria-label="Toggle sources panel"
-          >
-            <PanelRight className="h-4 w-4" />
-          </Button>
+          <div className="ml-auto flex items-center gap-1">
+            <Link href="/dashboard">
+              <Button variant="ghost" size="icon" aria-label="Open observability dashboard">
+                <BarChart3 className="h-4 w-4" />
+              </Button>
+            </Link>
+            <AboutModal />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSourcesOpen((v) => !v)}
+              aria-label="Toggle sources panel"
+            >
+              <PanelRight className="h-4 w-4" />
+            </Button>
+          </div>
         </header>
 
         <main className="min-h-0 flex-1">

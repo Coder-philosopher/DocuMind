@@ -1,0 +1,94 @@
+{
+  "dataset": [
+    {
+      "question": "What was Acme Corporation's total revenue in fiscal year 2024?",
+      "reference_answer": "Acme reported total revenue of $1.24 billion for fiscal year 2024, up 18% from $1.05 billion in FY2023.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "Which segment drove Acme's revenue growth in FY2024?",
+      "reference_answer": "The Enterprise Software division contributed $620 million, or 50% of total revenue, driving growth. Cloud Infrastructure grew 31%.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "What was Acme's operating income and operating margin in FY2024?",
+      "reference_answer": "Operating income rose to $180 million, a 22% operating margin, up from $140 million (13%) in FY2023.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "How much did Acme invest in research and development in FY2024?",
+      "reference_answer": "Acme invested $210 million in R&D in FY2024, representing 17% of revenue, and grew R&D headcount by 22% to 1,160 employees.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "What is Acme's revenue guidance for fiscal year 2025?",
+      "reference_answer": "Management guides to 12% to 15% revenue growth in FY2025, targeting $1.39 to $1.43 billion, with operating margin above 20%.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "When does Acme plan to launch Acme Assistant 1.0?",
+      "reference_answer": "Acme plans to launch Acme Assistant 1.0 in Q2 of fiscal year 2025, after a beta that began in November 2024.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "What was Acme's diluted earnings per share in FY2024?",
+      "reference_answer": "Diluted EPS reached $1.31 in FY2024, up from $0.94 in FY2023.",
+      "source": "acme_annual_report_fy2024.md"
+    },
+    {
+      "question": "How many tiers are used to classify data in Acme's security policy, and what are they?",
+      "reference_answer": "Four tiers: Tier 1 Public, Tier 2 Internal, Tier 3 Confidential, and Tier 4 Restricted.",
+      "source": "acme_data_security_policy.md"
+    },
+    {
+      "question": "What access control is required for Tier 3 and Tier 4 data?",
+      "reference_answer": "Access requires manager approval plus recertification every 90 days, and MFA is mandatory for reading Tier 3 or Tier 4 data.",
+      "source": "acme_data_security_policy.md"
+    },
+    {
+      "question": "What encryption requirements does Acme's security policy specify?",
+      "reference_answer": "Data at rest must be AES-256 encrypted; data in transit must use TLS 1.2 or higher; keys must rotate at least every 12 months.",
+      "source": "acme_data_security_policy.md"
+    },
+    {
+      "question": "How quickly must a Tier 3 or Tier 4 security incident be reported?",
+      "reference_answer": "Incidents involving Tier 3 or Tier 4 data must be reported to the CISO office within 4 hours of discovery.",
+      "source": "acme_data_security_policy.md"
+    },
+    {
+      "question": "What is the deadline for fulfilling GDPR data subject access requests?",
+      "reference_answer": "Data subject access requests must be fulfilled within 30 calendar days.",
+      "source": "acme_data_security_policy.md"
+    },
+    {
+      "question": "What is the pricing for Acme Assistant beyond the first 1,000 users?",
+      "reference_answer": "It is priced at $8 per user per month when bundled with the Enterprise Software subscription, and $12 per user per month for standalone access.",
+      "source": "acme_assistant_roadmap.txt"
+    },
+    {
+      "question": "What file types does Acme Assistant support for upload?",
+      "reference_answer": "PDF, DOCX, TXT and Markdown.",
+      "source": "acme_assistant_roadmap.txt"
+    },
+    {
+      "question": "How does the Acme assistant prevent answers outside the uploaded documents?",
+      "reference_answer": "It enforces grounding: it never answers from memory outside the uploaded document set, and a hallucination check scores every answer for faithfulness.",
+      "source": "acme_assistant_roadmap.txt"
+    },
+    {
+      "question": "Are customer documents used to train external models?",
+      "reference_answer": "No. Customer documents are stored in encrypted storage at rest and are not used to train external models.",
+      "source": "acme_assistant_roadmap.txt"
+    },
+    {
+      "question": "When does the beta of Acme Assistant start and with how many employees?",
+      "reference_answer": "The beta begins in November 2024 for a pilot of 200 employees.",
+      "source": "acme_assistant_roadmap.txt"
+    },
+    {
+      "question": "Which combined search approach does Acme Assistant use for retrieval?",
+      "reference_answer": "A hybrid retrieval backend combining vector search over embedded chunks with lexical keyword search.",
+      "source": "acme_assistant_roadmap.txt"
+    }
+  ]
+}

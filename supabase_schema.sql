@@ -57,6 +57,19 @@ create table if not exists eval_runs (
   notes text
 );
 
+-- Per-query observability log (drives the /dashboard)
+create table if not exists query_logs (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid references conversations(id) on delete set null,
+  query text,
+  rewritten_query text,
+  latency_ms jsonb default '{}'::jsonb, -- per-stage latency breakdown
+  tokens_in integer default 0,
+  tokens_out integer default 0,
+  rerank_fallback boolean default false,
+  created_at timestamp with time zone default now()
+);
+
 -- RPC: vector-only similarity search (cosine)
 create or replace function vector_search(
   query_embedding vector(768),

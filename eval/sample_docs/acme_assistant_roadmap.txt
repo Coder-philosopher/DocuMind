@@ -1,0 +1,13 @@
+Acme Corporation — Acme Assistant 1.0 Product Requirements Summary
+
+Overview. Acme Assistant is a conversational enterprise AI assistant for Acme's internal knowledge base. It is scheduled to launch as version 1.0 in Q2 of fiscal year 2025.
+
+Core features. The product provides retrieval-augmented answers over company documents, inline source citations, and support for PDF, DOCX, TXT and Markdown uploads. The assistant enforces grounding: it will never answer from memory outside the uploaded document set.
+
+Pricing. Acme Assistant will be bundled with the Enterprise Software subscription at no additional cost for the first 1,000 users. Beyond that tier, pricing is $8 per user per month. Standalone access is priced at $12 per user per month.
+
+Supported models. The assistant uses a hybrid retrieval backend combining vector search over embedded chunks with lexical keyword search. A reranking model improves top-k relevance, and a hallucination check scores every answer for faithfulness.
+
+Launch milestones. Beta begins in November 2024 for a pilot of 200 employees. GA launch in Q2 FY2025. European expansion is planned for Q4 FY2025 after GDPR compliance review.
+
+Storage and privacy. Document content is stored in encrypted storage at rest. Customer documents are not used to train external models.
