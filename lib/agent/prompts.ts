@@ -62,3 +62,43 @@ export function parseCitations(
   // interactive badges in the UI.
   return { text: answer, citationNumbers: Array.from(citations).sort((a, b) => a - b) };
 }
+
+/**
+ * Builds a strictly literal, MathJax/LaTeX-free summary of a set of documents.
+ * Used as a low-cost streaming fallback that still returns instantly when the
+ * generative model is temporarily out of quota.
+ */
+export function buildSynopsis(
+  documents: { filename: string; content: string }[]
+): string {
+  const heading = documents.length === 1 ? "**Overview of the document**" : `**Overview of ${documents.length} documents**`;
+  const totals = documents.reduce(
+    (acc, d) => {
+      acc.words += d.content.trim().split(/\s+/).length;
+      acc.chars += d.content.length;
+      return acc;
+    },
+    { words: 0, chars: 0 }
+  );
+  const lines: string[] = [
+    heading,
+    `Together the file${documents.length === 1 ? "" : "s"} contain${documents.length === 1 ? "s" : ""} roughly ${Math.max(1, Math.round(totals.words / 1000))} pages of text (${totals.words.toLocaleString()} words).`,
+  ];
+  for (const d of documents.slice(0, 6)) {
+    const words = d.content.trim().split(/\s+/).length;
+    const firstLine = d.content
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\*\*/g, "").trim())
+      .find((l) => l.length > 10);
+    if (firstLine) lines.push(`- **${d.filename}** (${words} words) — ${firstLine.slice(0, 120)}`);
+    else lines.push(`- **${d.filename}** (${words} words)`);
+  }
+  if (documents.length > 6) {
+    lines.push(`- plus ${documents.length - 6} more file${documents.length - 6 === 1 ? "" : "s"}.`);
+  }
+  lines.push(
+    "",
+    "> This is a literal, unexpanded overview based only on the uploaded files' titles and sizes. For an interpretation, what the documents are really about, or to pull numbers and figures from them, ask a more specific question — e.g. compare risks, list recommendations, or tell me what each document covers — and I will cite exact sources."
+  );
+  return lines.join("\n");
+}

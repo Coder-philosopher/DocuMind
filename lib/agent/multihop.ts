@@ -1,6 +1,6 @@
 import { hybridSearch } from "@/lib/retrieve";
 import { rerankResults } from "@/lib/rerank/cohere";
-import { generateAnswer } from "@/lib/agent/answer";
+import { generateAnswer, generateAnswerStreamed, type AnswerGenerationOutput } from "@/lib/agent/answer";
 import { rewriteQuery } from "@/lib/agent/rewrite";
 import { checkSupport, groundingCheck } from "@/lib/agent/grounding";
 import { traceEvent } from "@/lib/observability/langfuse";
@@ -258,6 +258,224 @@ function mergeContexts(
     }
   }
   return merged;
+}
+
+export type AgenticStreamEvent =
+  | { type: "reset" }
+  | { type: "delta"; text: string }
+  | {
+      type: "done";
+      content: string;
+      citations: Citation[];
+      groundingScore: number;
+      unsupportedSentences?: Array<{ sentence: string; reason: string }>;
+      agentSteps: AgentStep[];
+      usage: { input: number; output: number };
+      rerankFallback?: string;
+      rewrittenQuery?: string;
+      latency?: Record<string, number>;
+    };
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Streaming variant of [#runAgenticAnswer]. Same multi-step pipeline
+ * (rewrite → search/rerank → generation → evidence loop → grounding), but the
+ * final answer text is streamed out as `delta` events so the UI can start
+ * rendering tokens right away. Emits `reset` whenever the answer is replaced
+ * by a refined generation. Ends with a `done` event carrying the full,
+ * grounded result — or throws, which callers map to a friendly SSE error.
+ */
+export async function* runAgenticAnswerStreamed(
+  input: AgenticAnswerInput
+): AsyncGenerator<AgenticStreamEvent> {
+  const agentSteps: AgentStep[] = [];
+  const hops = clamp(input.initialCandidates ?? 20, 5, 40);
+  const topN = clamp(input.finalTopN ?? 5, 3, 10);
+  let usage = { input: 0, output: 0 };
+  const latency: Record<string, number> = {
+    rewrite: 0,
+    retrieve: 0,
+    rerank: 0,
+    generate: 0,
+    supportCheck: 0,
+    grounding: 0,
+  };
+
+  const searchAndRerank = async (q: string): Promise<{
+    results: RetrievalResult[];
+    rerankFallback?: string;
+  }> => {
+    const startedRetrieve = Date.now();
+    const candidates = await hybridSearch(q, hops);
+    latency.retrieve += Date.now() - startedRetrieve;
+
+    const startedRerank = Date.now();
+    const reranked = await rerankResults(q, candidates, topN);
+    latency.rerank += Date.now() - startedRerank;
+
+    return {
+      results: reranked.results,
+      rerankFallback: reranked.reranked ? undefined : reranked.fallbackReason,
+    };
+  };
+
+  // ---- Rewrite ----
+  const startedRewrite = Date.now();
+  const { rewrittenQuery, usedRewrite } = await rewriteQuery(
+    input.query,
+    input.conversationHistory ?? []
+  );
+  latency.rewrite = Date.now() - startedRewrite;
+  if (usedRewrite) {
+    agentSteps.push({
+      label: "Rewrote query",
+      detail: `"${input.query}" → "${rewrittenQuery}"`,
+      durationMs: latency.rewrite,
+    });
+  }
+
+  // ---- First search + rerank ----
+  let queryForSearch = rewrittenQuery;
+  const firstRound = await searchAndRerank(queryForSearch);
+  let currentContext = firstRound.results;
+  const rerankFallback = firstRound.rerankFallback;
+  agentSteps.push(
+    {
+      label: "Searched",
+      detail: `${queryForSearch.length > 60 ? queryForSearch.slice(0, 60) + "…" : queryForSearch} — ${currentContext.length} chunks`,
+    },
+    {
+      label: "Reranked",
+      detail: rerankFallback
+        ? `Cohere unavailable → hybrid order (${rerankFallback})`
+        : `Cohere selected top ${currentContext.length}`,
+    }
+  );
+
+  // ---- Draft answer (streamed) ----
+  let currentAnswer = "";
+  let currentCitations: Citation[] = [];
+  async function* streamDeltas(
+    results: RetrievalResult[],
+    resetBefore = false
+  ): AsyncGenerator<{ type: "reset" } | { type: "delta"; text: string }, AnswerGenerationOutput> {
+    if (resetBefore) {
+      yield { type: "reset" };
+    }
+    const startedGenerate = Date.now();
+    const draft = generateAnswerStreamed({
+      query: input.query,
+      results,
+      conversationHistory: input.conversationHistory,
+    });
+    for await (const delta of draft.deltas) {
+      latency.generate = Date.now() - startedGenerate;
+      yield { type: "delta", text: delta };
+    }
+    const done = await draft.done;
+    latency.generate = Date.now() - startedGenerate;
+    usage = {
+      input: usage.input + done.usage.input,
+      output: usage.output + done.usage.output,
+    };
+    return done;
+  }
+
+  const doneDraft = yield* streamDeltas(currentContext);
+  currentAnswer = doneDraft.content;
+  currentCitations = doneDraft.citations;
+
+  if (currentCitations.length === 0) {
+    // Nothing retrieved / nothing usable — refusal already streamed.
+    agentSteps.push({
+      label: "Answered",
+      detail: "No sources found — returned an explicit 'not found' response.",
+    });
+    yield {
+      type: "done",
+      content: currentAnswer,
+      citations: currentCitations,
+      groundingScore: 1.0,
+      unsupportedSentences: [],
+      agentSteps,
+      usage,
+      rerankFallback,
+      rewrittenQuery,
+      latency,
+    };
+    return;
+  }
+
+  // ---- Multi-hop evidence loop ----
+  let hopCount = 0;
+  while (hopCount < MAX_HOPS) {
+    const startedCheck = Date.now();
+    const check = await checkSupport(input.query, currentAnswer, currentContext);
+    latency.supportCheck += Date.now() - startedCheck;
+    if (check.sufficient || !check.followUpQuery) {
+      if (hopCount > 0) {
+        agentSteps.push({ label: "Enough evidence", detail: check.reasoning });
+      }
+      break;
+    }
+
+    hopCount += 1;
+    agentSteps.push({
+      label: `Needed more evidence (${hopCount})`,
+      detail: check.reasoning,
+    });
+
+    const followUp = await searchAndRerank(check.followUpQuery);
+    const newResults = followUp.results;
+    agentSteps.push({
+      label: "Searched again",
+      detail: `"${check.followUpQuery}" — ${newResults.length} chunks`,
+    });
+    currentContext = mergeContexts(currentContext, newResults);
+    queryForSearch = check.followUpQuery;
+
+    const refined = yield* streamDeltas(currentContext, true);
+    currentAnswer = refined.content;
+    currentCitations = refined.citations;
+  }
+  agentSteps.push({
+    label: "Answered",
+    detail: `Final answer with ${currentCitations.length} citation${currentCitations.length === 1 ? "" : "s"}`,
+  });
+
+  // ---- Grounding ----
+  const startedGrounding = Date.now();
+  const groundResult = await groundingCheck(
+    input.query,
+    currentAnswer,
+    currentCitations,
+    currentContext
+  );
+  latency.grounding = Date.now() - startedGrounding;
+  agentSteps.push({
+    label: "Grounded",
+    detail: `Faithfulness ${Math.round(groundResult.overallScore * 100)}%${
+      groundResult.unsupportedSentences.length > 0
+        ? ` · ${groundResult.unsupportedSentences.length} flagged`
+        : ""
+    }`,
+  });
+
+  yield {
+    type: "done",
+    content: currentAnswer,
+    citations: currentCitations,
+    groundingScore: groundResult.overallScore,
+    unsupportedSentences: groundResult.unsupportedSentences,
+    agentSteps,
+    usage,
+    rerankFallback,
+    rewrittenQuery,
+    latency,
+  };
 }
 
 export type { Citation };

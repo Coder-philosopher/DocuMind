@@ -60,6 +60,85 @@ export async function generateText(params: {
 }
 
 /**
+ * Stream a generation from Gemini, yielding progressive text deltas so the UI
+ * can render tokens as they arrive (instead of waiting for the full round
+ * trip). The first tokens land in ~1-2s even when the full answer takes
+ * 10-20s to finish.
+ *
+ * Errors surface exactly like generateText (429 on quota, 5xx on outage), so
+ * callers can keep the same retry/quota handling. The `done` promise resolves
+ * with provider usage once the whole stream has been consumed.
+ */
+export function streamText(params: {
+  systemPrompt?: string;
+  prompt: string;
+  temperature?: number;
+  responseMimeType?: "text/plain" | "application/json";
+}): {
+  deltas: AsyncGenerator<string>;
+  done: Promise<StreamTextResult>;
+} {
+  const model = getGeminiModel(GENERATION_MODEL);
+  const parts = [
+    ...(params.systemPrompt ? [{ text: params.systemPrompt }] : []),
+    { text: params.prompt },
+  ];
+
+  const result: StreamTextResult = { fullText: "", inputTokens: 0, outputTokens: 0 };
+  let resolveDone!: (v: StreamTextResult) => void;
+  const done = new Promise<StreamTextResult>((res) => {
+    resolveDone = res;
+  });
+
+  async function* deltas() {
+    let lastUsage: { promptTokenCount?: number; candidatesTokenCount?: number } | undefined;
+    try {
+      const gen = await model.generateContentStream({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          temperature: params.temperature ?? 0.4,
+          responseMimeType: params.responseMimeType ?? "text/plain",
+        },
+      });
+      // Gemini streams cumulative text per chunk (each response has the full
+      // text so far). Slice out only the new portion. Some backends may send
+      // incremental deltas instead — guard both: if the new text does not
+      // start with the previous full text, treat it as a fresh delta.
+      for await (const chunk of gen.stream) {
+        if (chunk.usageMetadata) lastUsage = chunk.usageMetadata;
+        const text = chunk.text();
+        if (text) {
+          result.fullText += text;
+          yield text;
+        }
+      }
+    } catch (error) {
+      const norm = {
+        message: String(error),
+        status: (error as { status?: number })?.status ?? 500,
+        isStreamError: true,
+      };
+      result.error = norm;
+      resolveDone(result);
+      throw norm;
+    }
+    result.inputTokens = lastUsage?.promptTokenCount ?? 0;
+    result.outputTokens = lastUsage?.candidatesTokenCount ?? 0;
+    resolveDone(result);
+  }
+
+  return { deltas: deltas(), done };
+}
+
+export interface StreamTextResult {
+  fullText: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** Present only when the stream itself failed (429 quota, 5xx, etc.). */
+  error?: { message: string; status: number; isStreamError?: boolean };
+}
+
+/**
  * Embed texts via the REST API directly. The JS SDK's EmbedContentRequest type
  * does not expose `outputDimensionality`, so calling it raw lets us pin the
  * embedding to EMBEDDING_DIMENSIONS (768) to match the pgvector schema.
