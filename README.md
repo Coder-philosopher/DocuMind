@@ -1,8 +1,11 @@
 # DocuMind
 
+**Author: Abdullah**
+
 Enterprise Agentic RAG research assistant. Ask questions over your uploaded PDFs / DOCX / TXT / Markdown documents and get grounded, cited answers with a hallucination check, per-query observability, and offline evaluation. Built entirely on free tiers.
 
 ## Architecture
+
 
 ```
                            ┌────────────────────────────────────────────┐
