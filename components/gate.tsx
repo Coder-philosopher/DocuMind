@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 // Frontend-only access gate. The key ships with the client bundle, so this is
 // a usage/abuse deterrent — not real security. Override via NEXT_PUBLIC_GATE_PASSWORD.
-const GATE_PASSWORD = process.env.NEXT_PUBLIC_GATE_PASSWORD || "documind";
+const GATE_PASSWORD = process.env.NEXT_PUBLIC_GATE_PASSWORD || "abdullah@documind@123";
 const STORAGE_KEY = "documind-voice-gate";
 
 export function Gate({ children }: { children: ReactNode }) {
