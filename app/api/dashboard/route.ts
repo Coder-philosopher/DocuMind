@@ -38,6 +38,14 @@ export async function GET() {
     const rows = totalsRes.data ?? [];
     const totalTokensIn = rows.reduce((s, r) => s + (r.tokens_in ?? 0), 0);
     const totalTokensOut = rows.reduce((s, r) => s + (r.tokens_out ?? 0), 0);
+
+    const latencyTotals: Record<string, number> = {};
+    rows.forEach((r) => {
+      const lat = r.latency_ms as Record<string, number> | null;
+      for (const [k, v] of Object.entries(lat ?? {})) {
+        latencyTotals[k] = (latencyTotals[k] ?? 0) + v;
+      }
+    });
     const avgLatency =
       rows.length > 0
         ? Math.round(
@@ -49,6 +57,8 @@ export async function GET() {
           )
         : 0;
 
+    const rerankFallbacks = rows.filter((r) => r.rerank_fallback).length;
+
     return NextResponse.json({
       logs: logsRes.data ?? [],
       totals: {
@@ -56,6 +66,16 @@ export async function GET() {
         totalTokensOut,
         totalQueries: rows.length,
         avgLatencyMs: avgLatency,
+        avgTokensPerQuery: rows.length > 0 ? Math.round((totalTokensIn + totalTokensOut) / rows.length) : 0,
+        totalLatencyMs: Object.values(latencyTotals).reduce((a, b) => a + b, 0),
+        latencyBreakdown: latencyTotals,
+        avgStageLatency: rows.length > 0
+          ? Object.fromEntries(
+              Object.entries(latencyTotals).map(([k, v]) => [k, Math.round(v / rows.length)])
+            )
+          : {},
+        rerankFallbackCount: rerankFallbacks,
+        rerankFallbackPct: rows.length > 0 ? Math.round((rerankFallbacks / rows.length) * 100) : 0,
       },
       latestEvalRun: evalRes.data ?? null,
     });

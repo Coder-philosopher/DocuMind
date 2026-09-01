@@ -14,6 +14,7 @@ import {
   X,
   UploadCloud,
 } from "lucide-react";
+
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ interface DocumentSidebarProps {
   onDocumentsChange: (docs: DocumentRecord[]) => void;
   onOpenSources: () => void;
   open: boolean;
+  onClose?: () => void;
 }
 
 const fileIcon = (type: string) => {
@@ -48,6 +50,7 @@ export function DocumentSidebar({
   onDocumentsChange,
   onOpenSources,
   open,
+  onClose,
 }: DocumentSidebarProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   void onOpenSources;
@@ -127,9 +130,22 @@ export function DocumentSidebar({
             {readyCount} ready · {documents.length} total
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setDialogOpen(true)} aria-label="Upload document">
-          <UploadCloud className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setDialogOpen(true)} aria-label="Upload document">
+            <UploadCloud className="h-4 w-4" />
+          </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="Close document sidebar"
+              className="md:hidden"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">

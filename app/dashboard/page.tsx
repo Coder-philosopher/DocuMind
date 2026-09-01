@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { ArrowLeft, Gauge, Activity, Coins, Database } from "lucide-react";
+import { ArrowLeft, Gauge, Activity, Coins, Database, RefreshCw, Timer, GaugeCircle } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,11 @@ export default function DashboardPage() {
     totalTokensOut: 0,
     totalQueries: 0,
     avgLatencyMs: 0,
+    avgTokensPerQuery: 0,
+    latencyBreakdown: {} as Record<string, number>,
+    avgStageLatency: {} as Record<string, number>,
+    rerankFallbackCount: 0,
+    rerankFallbackPct: 0,
   });
   const [latestEvalRun, setLatestEvalRun] = useState<EvalRun | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,7 +94,14 @@ export default function DashboardPage() {
       };
     });
 
-  const totalCost = ((totals.totalTokensIn + totals.totalTokensOut) * 0.00000375).toFixed(4);
+  // Pricing: gemini-3.5-flash-lite is free, but model these rates for cost
+  // projection (input cheaper than output).
+  const INPUT_RATE_PER_1K = 0.00025; // $ / 1k input tokens
+  const OUTPUT_RATE_PER_1K = 0.001; // $ / 1k output tokens
+  const costIn = (totals.totalTokensIn / 1000) * INPUT_RATE_PER_1K;
+  const costOut = (totals.totalTokensOut / 1000) * OUTPUT_RATE_PER_1K;
+  const totalCost = costIn + costOut;
+  const avgCostPerQuery = totals.totalQueries > 0 ? totalCost / totals.totalQueries : 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -116,27 +128,92 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard
                 icon={<Database className="h-4 w-4" />}
                 label="Queries logged"
                 value={String(totals.totalQueries)}
+                sub="total requests"
               />
               <StatCard
-                icon={<Activity className="h-4 w-4" />}
+                icon={<Timer className="h-4 w-4" />}
                 label="Avg latency"
                 value={`${totals.avgLatencyMs}ms`}
+                sub="per query, all stages"
               />
               <StatCard
                 icon={<Coins className="h-4 w-4" />}
-                label="Tokens (in + out)"
+                label="Total tokens"
                 value={(totals.totalTokensIn + totals.totalTokensOut).toLocaleString()}
+                sub={`~${totals.avgTokensPerQuery.toLocaleString()} / query`}
               />
               <StatCard
                 icon={<Coins className="h-4 w-4" />}
                 label="Estimated LLM cost"
-                value={`$${totalCost}`}
+                value={`$${totalCost.toFixed(4)}`}
+                sub={`avg $${avgCostPerQuery.toFixed(6)} / query`}
               />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Coins className="h-4 w-4 text-primary" /> Token usage
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <MetricRow label="Input tokens" value={totals.totalTokensIn.toLocaleString()} />
+                  <MetricRow label="Output tokens" value={totals.totalTokensOut.toLocaleString()} />
+                  <MetricRow label="Avg per query" value={totals.avgTokensPerQuery.toLocaleString()} />
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (totals.totalTokensIn / Math.max(1, totals.totalTokensIn + totals.totalTokensOut)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Input share of total tokens</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <GaugeCircle className="h-4 w-4 text-primary" /> Cost breakdown
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <MetricRow label="Input cost" value={`$${costIn.toFixed(4)}`} />
+                  <MetricRow label="Output cost" value={`$${costOut.toFixed(4)}`} />
+                  <MetricRow label="Total cost" value={`$${totalCost.toFixed(4)}`} />
+                  <p className="rounded-md bg-muted/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                    Est. model rates ${INPUT_RATE_PER_1K}/1k in, ${OUTPUT_RATE_PER_1K}/1k out.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <RefreshCw className="h-4 w-4 text-primary" /> Retrieval quality
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <MetricRow
+                    label="Rerank fallbacks"
+                    value={`${totals.rerankFallbackCount} (${totals.rerankFallbackPct}%)`}
+                  />
+                  <MetricRow label="Rerank success" value={`${100 - totals.rerankFallbackPct}%`} />
+                  <p className="rounded-md bg-muted/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                    Fallback = Cohere unavailable, used hybrid order instead.
+                  </p>
+                </CardContent>
+              </Card>
             </div>
 
             {latestEvalRun && (
@@ -259,19 +336,39 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+}) {
   return (
     <Card>
       <CardContent className="flex items-center gap-3 p-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           {icon}
         </div>
         <div className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">{label}</p>
-          <p className="text-xl font-semibold">{value}</p>
+          <p className="truncate text-xl font-semibold">{value}</p>
+          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function MetricRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
   );
 }
 
